@@ -11,6 +11,9 @@ try:
     # Slice the first 100 rows from the DataFrame
     df_minimum = df.head(100)
 
+    # only leave these columns
+    df_minimum = df_minimum[['accounted_amount', 'journal_name']]
+
     # Save the resulting DataFrame to a new Excel file
     df_minimum.to_excel(output_file, index=False)
 

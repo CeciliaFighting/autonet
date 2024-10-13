@@ -2,7 +2,7 @@ import itertools
 import pandas as pd
 import re
 import os
-from tkinter import Tk, Text, Scrollbar, END, Toplevel, Button
+from tkinter import Tk
 from tkinter.filedialog import askopenfilename
 from multiprocessing import Pool, cpu_count
 from decimal import Decimal
@@ -11,15 +11,58 @@ import time
 import logging
 
 
+# contents inside journal_name is either in format:
+# 26-SEP-2024 Bank Statements(1) JPY
+# or
+# USL 25-SEP-24 800019920808 Checkbook JPY
+# it should be converted to '26-SEP-2024' format in this function
 def extract_date(journal_name):
-    # Extract date like '07-AUG-2024'
-    match = re.search(r'\d{2}-\w{3}-\d{4}', journal_name)
-    return match.group(0) if match else None
+    # Pattern 1: Match the '26-SEP-2024' format
+    match = re.search(r'(\d{2}-\w{3}-\d{4})', journal_name)
 
-# Function to find matching combinations of numbers that sum to zero and assign a unique ID to each matched group
+    if match:
+        # If the date is already in the 'DD-MMM-YYYY' format, return it
+        return match.group(0)
+
+    # Pattern 2: Match the '25-SEP-24' format
+    match = re.search(r'(\d{2}-\w{3}-(\d{2}))', journal_name)
+
+    if match:
+        # Extract the day, month, and 2-digit year
+        date_str = match.group(1)  # '25-SEP-24'
+        year_2_digit = match.group(2)  # '24'
+
+        # Convert the 2-digit year to 4-digit year (assuming 2000s)
+        year_4_digit = '20' + year_2_digit
+
+        # Replace the 2-digit year with the 4-digit year
+        converted_date_str = date_str[:-2] + year_4_digit
+        return converted_date_str
+
+    return None  # Return None if no valid date is found
+
+
+# Function to round the value and check tolerance
+def round_with_tolerence(amount):
+    tolerance = 1e-4
+
+    try:
+        rounded_value = round(amount, 0)
+
+        # Check if the difference between the original and rounded value exceeds the tolerance
+        if abs(amount - rounded_value) > tolerance:
+            logging.error(f"Rounding error: Original value {
+                          amount} exceeds tolerance after rounding.")
+
+        return rounded_value
+
+    except Exception as e:
+        logging.error(f"Error processing amount {amount}: {e}")
+        return amount  # Return the original amount in case of error
 
 
 def find_zero_sum_combinations(args):
+    # Function to find matching combinations of numbers that sum to zero and assign a unique ID to each matched group
     numbers, matched_mask, combination_size, tolerance, time_limit, current_match_id = args
     matched_indices = set()  # To store indices of matched rows
     # Consider only unmatched rows
@@ -79,10 +122,9 @@ def parallel_match_combinations(numbers, matched_mask, combination_size, toleran
 
     return matched_indices, matched_groups, current_match_id
 
-# Group by same date and perform matching, assigning unique match IDs
-
 
 def group_by_date(df, matched_mask, combination_size, tolerance, time_limit, current_match_id):
+    # Group by same date and perform matching, assigning unique match IDs
     grouped = df.groupby('date')
     total_group_matched_indices = set()
     matched_groups = {}
@@ -133,6 +175,22 @@ def _check_file_path(file_path: str) -> None:
         exit(0)
 
 
+def _setup_log() -> None:
+    # Configure logging
+    logging.basicConfig(level=logging.INFO,
+                        format='%(asctime)s - %(levelname)s - %(message)s')
+
+    # change color of logging
+    logging.addLevelName(logging.INFO, "\033[32m%s\033[0m" %
+                         logging.getLevelName(logging.INFO))
+
+    logging.addLevelName(logging.WARNING, "\033[33m%s\033[0m" %
+                         logging.getLevelName(logging.WARNING))
+
+    logging.addLevelName(logging.ERROR, "\033[31m%s\033[0m" %
+                         logging.getLevelName(logging.ERROR))
+
+
 class CustomConfig:
     is_using_gui = False
     is_using_test_file = True
@@ -155,7 +213,6 @@ def main(config: CustomConfig) -> None:
     # Load the Excel file
     df = pd.read_excel(file_path)
 
-    # Strip spaces from column names and ensure the required columns are present
     df.columns = df.columns.str.strip()
     if 'accounted_amount' not in df.columns or 'journal_name' not in df.columns:
         logging.error(
@@ -164,12 +221,16 @@ def main(config: CustomConfig) -> None:
 
     # Extract date from 'journal_name' and group by date
     df['date'] = df['journal_name'].apply(extract_date)
+    # TODO: checking logic? use any() instead?
     if df['date'].isnull().all():
         logging.error("No valid dates found in 'journal_name'.")
         return
 
-    # Convert accounted_amount to Decimal to handle large numbers precisely
+    df['accounted_amount'] = df['accounted_amount'].apply(round_with_tolerence)
     df['accounted_amount'] = df['accounted_amount'].apply(Decimal)
+
+    # for debugging: save a version of df
+    # df.to_excel('df.xlsx', index=False)
 
     start_time = time.time()
 
@@ -282,21 +343,7 @@ def main(config: CustomConfig) -> None:
     logging.info(f"Processing complete, results saved to {output_file}")
 
 
-# Configure logging
-logging.basicConfig(level=logging.INFO,
-                    format='%(asctime)s - %(levelname)s - %(message)s')
-
-# change color of logging
-logging.addLevelName(logging.INFO, "\033[32m%s\033[0m" %
-                     logging.getLevelName(logging.INFO))
-
-logging.addLevelName(logging.WARNING, "\033[33m%s\033[0m" %
-                     logging.getLevelName(logging.WARNING))
-
-logging.addLevelName(logging.ERROR, "\033[31m%s\033[0m" %
-                     logging.getLevelName(logging.ERROR))
-
-
 if __name__ == "__main__":
+    _setup_log()
     customConfig = CustomConfig()
     main(customConfig)
