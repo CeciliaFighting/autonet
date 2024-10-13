@@ -4,7 +4,7 @@ import re
 import os
 from tkinter import Tk
 from tkinter.filedialog import askopenfilename
-from multiprocessing import Pool, cpu_count
+from multiprocessing import Pool, cpu_count, TimeoutError
 from decimal import Decimal
 from datetime import datetime
 import time
@@ -64,9 +64,9 @@ def amount_conversion(amount):
         exit(0)
 
 
-def find_zero_sum_combinations(args):
+def find_zero_sum_combinations(numbers, matched_mask, combination_size, tolerance, time_limit, current_match_id):
     # Function to find matching combinations of numbers that sum to zero and assign a unique ID to each matched group
-    numbers, matched_mask, combination_size, tolerance, time_limit, current_match_id = args
+    # numbers, matched_mask, combination_size, tolerance, time_limit, current_match_id = args
 
     matched_indices = set()  # To store indices of matched rows
     # Consider only unmatched rows
@@ -76,13 +76,6 @@ def find_zero_sum_combinations(args):
     matched_groups = {}
 
     for combo in itertools.combinations(indices, combination_size):
-        logging.warning(f"time.time() - start_time: {time.time() - start_time}")
-        # Check the time limit
-        if time.time() - start_time > time_limit:
-            logging.info(f"Time limit exceeded for {
-                combination_size}-number matches, stopping further processing.")
-            break  # Stop processing if time limit is exceeded
-
         values = [numbers[i] for i in combo]
 
         # Skip if all values are positive or all values are negative
@@ -96,26 +89,46 @@ def find_zero_sum_combinations(args):
                 matched_groups[idx] = current_match_id
             current_match_id += 1  # Increment match ID for next match group
 
-        # Check time again within the loop
-        if time.time() - start_time > time_limit:
-            logging.info(f"Reached time limit while processing {
-                combination_size}-number matches.")
-            break
-
     return matched_indices, matched_groups, current_match_id
 
 
 def parallel_match_combinations(numbers, matched_mask, combination_size, tolerance, time_limit, current_match_id):
     # Helper function to parallelize combination matching and track match IDs
 
-    num_workers = cpu_count()  # Get the number of CPU cores
+    num_workers = cpu_count() - 1  # Get the number of CPU cores
+
     pool = Pool(processes=num_workers)
-    # Split work across CPU cores
+
     args = [(numbers, matched_mask, combination_size, tolerance,
              time_limit, current_match_id) for _ in range(num_workers)]
-    result_sets = pool.map(find_zero_sum_combinations, args)
-    pool.close()
-    pool.join()
+
+    #
+
+    results = [pool.apply_async(find_zero_sum_combinations, args=(
+        numbers, matched_mask, combination_size, tolerance, time_limit, current_match_id)) for _ in range(num_workers)]
+
+    start_time = time.time()
+
+    result_sets = []
+
+    time_to_wait = time_limit
+
+    for i, result in enumerate(results):
+        try:
+            # wait for up to time_limit seconds
+            return_value = result.get(time_to_wait)
+        except TimeoutError:
+            logging.info(f"Timeout error for v = {i}, delta time = {
+                         time.time() - start_time}")
+        else:
+            # print(f'Return value for v = {i} is {return_value}')
+            result_sets += [return_value]
+        # how much time has exprired since we began waiting?
+        t = time.time() - start_time
+        time_to_wait = time_limit - t
+        if time_to_wait < 0:
+            time_to_wait = 0
+    pool.terminate()  # all processes, busy or idle, will be terminated
 
     # Combine all matched indices and match groups from parallel processes
     matched_indices = set()
@@ -192,6 +205,10 @@ def _setup_log() -> None:
 
     logging.addLevelName(logging.ERROR, "\033[31m%s\033[0m" %
                          logging.getLevelName(logging.ERROR))
+
+    # save log to file
+    # logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s',
+    #                     filename='debug.log', filemode='w')
 
 
 def perform_number_matches(numbers, matched_mask, combination_size, tolerance, time_limit, current_match_id, start_time):
@@ -304,7 +321,8 @@ def main(config: CustomConfig) -> None:
         len(matched_mask)) if not matched_mask[i]]
     remaining_numbers = [numbers[i] for i in remaining_unmatched_indices]
 
-    logging.info(f"Processing remaining unmatched rows: {len(remaining_numbers)}")
+    logging.info(f"Processing remaining unmatched rows: {
+                 len(remaining_numbers)}")
 
     # Perform 3-5 number matches for remaining unmatched items
     for combination_size in range(3, 6):  # 3 to 5-number combinations
