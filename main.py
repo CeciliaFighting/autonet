@@ -43,22 +43,24 @@ def extract_date(journal_name):
 
 
 # Function to round the value and check tolerance
-def round_with_tolerence(amount):
-    tolerance = 1e-4
+def amount_conversion(amount):
+    # return amount
 
+    tolerance = 1e-6
     try:
         rounded_value = round(amount, 0)
 
         # Check if the difference between the original and rounded value exceeds the tolerance
-        if abs(amount - rounded_value) > tolerance:
-            logging.error(f"Rounding error: Original value {
-                          amount} exceeds tolerance after rounding.")
+        if abs(amount - rounded_value) < tolerance:
+            return rounded_value
 
-        return rounded_value
+        logging.warning(f"Rounding error: Original value {
+            amount} exceeds tolerance after rounding.")
+        return amount  # Return the original value if the rounding error is too large
 
     except Exception as e:
         logging.error(f"Error processing amount {amount}: {e}")
-        return amount  # Return the original amount in case of error
+        exit(0)
 
 
 def find_zero_sum_combinations(args):
@@ -99,10 +101,10 @@ def find_zero_sum_combinations(args):
 
     return matched_indices, matched_groups, current_match_id
 
-# Helper function to parallelize combination matching and track match IDs
-
 
 def parallel_match_combinations(numbers, matched_mask, combination_size, tolerance, time_limit, current_match_id):
+    # Helper function to parallelize combination matching and track match IDs
+
     num_workers = cpu_count()  # Get the number of CPU cores
     pool = Pool(processes=num_workers)
     # Split work across CPU cores
@@ -125,6 +127,7 @@ def parallel_match_combinations(numbers, matched_mask, combination_size, toleran
 
 def group_by_date(df, matched_mask, combination_size, tolerance, time_limit, current_match_id):
     # Group by same date and perform matching, assigning unique match IDs
+
     grouped = df.groupby('date')
     total_group_matched_indices = set()
     matched_groups = {}
@@ -151,22 +154,19 @@ def group_by_date(df, matched_mask, combination_size, tolerance, time_limit, cur
     return total_group_matched_indices, matched_groups, current_match_id
 
 
-def _select_file_path(is_using_gui, is_using_test_file) -> str:
-    logging.info(f'Selecting file path with gui? {is_using_gui}')
-    if not is_using_gui:
-        return 'Sep63.10180.xlsx' if not is_using_test_file else 'Sep63.10180_minimum.xlsx'
+def _select_file_path(desired_file_path: str) -> str:
+    if desired_file_path != '':
+        return desired_file_path
     else:
         # Open a file dialog to ask the user to select an Excel file
-        file_path = askopenfilename(
+        path = askopenfilename(
             title="Select an Excel file",
             filetypes=[("Excel files", "*.xlsx"), ("Excel files", "*.xls")]
         )
-
-        if not file_path:
+        if not path:
             logging.error("No file selected, exiting.")
             exit(0)
-
-        return file_path
+        return path
 
 
 def _check_file_path(file_path: str) -> None:
@@ -192,8 +192,9 @@ def _setup_log() -> None:
 
 
 class CustomConfig:
-    is_using_gui = False
-    is_using_test_file = True
+    # desired_file_path: str = '' # leave empty to select file
+    # desired_file_path: str = 'Sep63.10180.xlsx'  # real path
+    desired_file_path: str = 'Sep63.10180_minimum.xlsx'  # test path
 
 
 def main(config: CustomConfig) -> None:
@@ -203,15 +204,13 @@ def main(config: CustomConfig) -> None:
     root = Tk()
     root.withdraw()  # Hide the main tkinter window
 
-    file_path = _select_file_path(
-        config.is_using_gui, config.is_using_test_file)
-    _check_file_path(file_path)
+    using_file_path = _select_file_path(config.desired_file_path)
+    _check_file_path(using_file_path)
+    df = pd.read_excel(using_file_path)
+    logging.info(f"File loaded: {using_file_path}")
 
     logging.info(
-        f"----------------- Processing file: {file_path} -----------------\n")
-
-    # Load the Excel file
-    df = pd.read_excel(file_path)
+        f"----------------- Data loaded successfully -----------------\n")
 
     df.columns = df.columns.str.strip()
     if 'accounted_amount' not in df.columns or 'journal_name' not in df.columns:
@@ -226,7 +225,7 @@ def main(config: CustomConfig) -> None:
         logging.error("No valid dates found in 'journal_name'.")
         return
 
-    df['accounted_amount'] = df['accounted_amount'].apply(round_with_tolerence)
+    df['accounted_amount'] = df['accounted_amount'].apply(amount_conversion)
     df['accounted_amount'] = df['accounted_amount'].apply(Decimal)
 
     # for debugging: save a version of df
@@ -331,8 +330,8 @@ def main(config: CustomConfig) -> None:
         i, '') or matched_groups_4.get(i, '') or matched_groups_5.get(i, '') for i in range(len(numbers))]
 
     # Save the result to a new Excel file in the same directory with the original file name
-    source_dir = os.path.dirname(file_path)
-    original_file_name = os.path.basename(file_path).rsplit(
+    source_dir = os.path.dirname(using_file_path)
+    original_file_name = os.path.basename(using_file_path).rsplit(
         '.', 1)[0]  # Remove the extension for renaming
     current_time = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
     output_file = os.path.join(source_dir, f"matching file_{
