@@ -1,0 +1,6 @@
+{
+  "command-runner.commands": {
+    "run": "conda activate autonet && python main.py",
+    "install requirements": "conda activate autonet && pip install -r requirements.txt"
+  }
+}
