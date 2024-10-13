@@ -10,38 +10,6 @@ from datetime import datetime
 import time
 import logging
 
-# Create a window to show output in a scrollable text area
-
-
-def create_output_window():
-    output_window = Toplevel()
-    output_window.title("Process Output")
-    output_window.geometry("600x400")  # Adjust window size here
-
-    scrollbar = Scrollbar(output_window)
-    scrollbar.pack(side="right", fill="y")
-
-    text_area = Text(output_window, wrap="word", yscrollcommand=scrollbar.set)
-    text_area.pack(expand=True, fill="both")
-    scrollbar.config(command=text_area.yview)
-
-    # Add a button to allow the user to close the window manually
-    close_button = Button(output_window, text="Close Window",
-                          command=output_window.destroy)
-    close_button.pack(pady=10)
-
-    return output_window, text_area
-
-# Helper function to print messages to both the console and the text window
-
-
-def print_to_window(text_area, message):
-    text_area.insert(END, message + "\n")  # Insert into text area
-    text_area.see(END)  # Scroll to the end
-    text_area.update()  # Refresh window to show real-time output
-
-# Helper function to extract date from 'journal_name'
-
 
 def extract_date(journal_name):
     # Extract date like '07-AUG-2024'
@@ -114,7 +82,7 @@ def parallel_match_combinations(numbers, matched_mask, combination_size, toleran
 # Group by same date and perform matching, assigning unique match IDs
 
 
-def group_by_date(df, matched_mask, combination_size, tolerance, time_limit, current_match_id, text_area):
+def group_by_date(df, matched_mask, combination_size, tolerance, time_limit, current_match_id):
     grouped = df.groupby('date')
     total_group_matched_indices = set()
     matched_groups = {}
@@ -135,8 +103,8 @@ def group_by_date(df, matched_mask, combination_size, tolerance, time_limit, cur
 
         # Calculate time taken for each group
         process_time = round(time.time() - start_time, 2)
-        print_to_window(text_area, f"Processed date {group_name} for {
-                        combination_size}-number matches, Matched: {len(group_matched_indices)} numbers, Time: {process_time} seconds")
+        logging.info(f"Processed date {group_name} for {
+            combination_size}-number matches, Matched: {len(group_matched_indices)} numbers, Time: {process_time} seconds")
 
     return total_group_matched_indices, matched_groups, current_match_id
 
@@ -181,8 +149,8 @@ def main(config: CustomConfig) -> None:
         config.is_using_gui, config.is_using_test_file)
     _check_file_path(file_path)
 
-    # Create an output window for displaying results
-    output_window, text_area = create_output_window()
+    logging.info(
+        f"----------------- Processing file: {file_path} -----------------\n")
 
     # Load the Excel file
     df = pd.read_excel(file_path)
@@ -190,15 +158,14 @@ def main(config: CustomConfig) -> None:
     # Strip spaces from column names and ensure the required columns are present
     df.columns = df.columns.str.strip()
     if 'accounted_amount' not in df.columns or 'journal_name' not in df.columns:
-        print_to_window(
-            text_area, "Error: Required columns 'accounted_amount' or 'journal_name' not found.")
+        logging.error(
+            "Required columns 'accounted_amount' or 'journal_name' not found.")
         return
 
     # Extract date from 'journal_name' and group by date
     df['date'] = df['journal_name'].apply(extract_date)
     if df['date'].isnull().all():
-        print_to_window(
-            text_area, "Error: No valid dates found in 'journal_name'.")
+        logging.error("No valid dates found in 'journal_name'.")
         return
 
     # Convert accounted_amount to Decimal to handle large numbers precisely
@@ -223,15 +190,15 @@ def main(config: CustomConfig) -> None:
         matched_mask[idx] = True  # Mark these numbers as matched
 
     process_time = round(time.time() - start_time, 2)
-    print_to_window(
-        text_area, f"2-number matches found: {len(matched_indices_2)}, Time: {process_time} seconds")
+    logging.info(
+        f"2-number matches found: {len(matched_indices_2)}, Time: {process_time} seconds")
 
     # Check how many unmatched items are left
     unmatched_count = matched_mask.count(False)
 
     if unmatched_count <= 1000:
-        print_to_window(
-            text_area, f"Remaining unmatched lines <= 1000, performing 3-5 number matches directly.")
+        logging.info(
+            f"Remaining unmatched lines <= 1000, performing 3-5 number matches directly.")
 
         # Perform 3-number matches for remaining items
         matched_indices_3, matched_groups_3, current_match_id = parallel_match_combinations(
@@ -240,8 +207,8 @@ def main(config: CustomConfig) -> None:
             matched_mask[idx] = True  # Mark these numbers as matched
 
         process_time = round(time.time() - start_time, 2)
-        print_to_window(
-            text_area, f"3-number matches found: {len(matched_indices_3)}, Time: {process_time} seconds")
+        logging.info(
+            f"3-number matches found: {len(matched_indices_3)}, Time: {process_time} seconds")
 
         # Perform 4-number matches for remaining items
         matched_indices_4, matched_groups_4, current_match_id = parallel_match_combinations(
@@ -250,8 +217,8 @@ def main(config: CustomConfig) -> None:
             matched_mask[idx] = True  # Mark these numbers as matched
 
         process_time = round(time.time() - start_time, 2)
-        print_to_window(
-            text_area, f"4-number matches found: {len(matched_indices_4)}, Time: {process_time} seconds")
+        logging.info(
+            f"4-number matches found: {len(matched_indices_4)}, Time: {process_time} seconds")
 
         # Perform 5-number matches for remaining items
         matched_indices_5, matched_groups_5, current_match_id = parallel_match_combinations(
@@ -260,23 +227,23 @@ def main(config: CustomConfig) -> None:
             matched_mask[idx] = True  # Mark these numbers as matched
 
         process_time = round(time.time() - start_time, 2)
-        print_to_window(
-            text_area, f"5-number matches found: {len(matched_indices_5)}, Time: {process_time} seconds")
+        logging.info(
+            f"5-number matches found: {len(matched_indices_5)}, Time: {process_time} seconds")
 
     else:
-        print_to_window(
-            text_area, f"Remaining unmatched lines > 1000, grouping by date and performing 3-5 number matches.")
+        logging.info(
+            f"Remaining unmatched lines > 1000, grouping by date and performing 3-5 number matches.")
 
         # Group by date and perform 3-5 number matches
         for combination_size in range(3, 6):  # 3 to 5-number combinations
             group_matched_indices, group_matched_groups, current_match_id = group_by_date(
-                df, matched_mask, combination_size, 2, 60, current_match_id, text_area)
+                df, matched_mask, combination_size, 2, 60, current_match_id)
             for idx in group_matched_indices:
                 matched_mask[idx] = True  # Mark these numbers as matched
 
         process_time = round(time.time() - start_time, 2)
-        print_to_window(text_area, f"Group by date: {
-                        combination_size}-number matches found, Time: {process_time} seconds")
+        logging.info(f"Group by date: {
+            combination_size}-number matches found, Time: {process_time} seconds")
 
     # After date group matching, now only process the remaining unmatched items
     remaining_unmatched_indices = [i for i in range(
@@ -294,8 +261,8 @@ def main(config: CustomConfig) -> None:
                          ] = True  # Mark these numbers as matched
 
         process_time = round(time.time() - start_time, 2)
-        print_to_window(text_area, f"Remaining unmatched: {combination_size}-number matches found: {
-                        len(remaining_matched_indices)}, Time: {process_time} seconds")
+        logging.info(f"Remaining unmatched: {combination_size}-number matches found: {
+            len(remaining_matched_indices)}, Time: {process_time} seconds")
 
     # Add the 'match' column and 'match_id' to the DataFrame
     df['match'] = ['matched' if matched else 'unmatched' for matched in matched_mask]
@@ -311,11 +278,8 @@ def main(config: CustomConfig) -> None:
                                original_file_name}_{current_time}.xlsx")
 
     df.to_excel(output_file, index=False)
-    print_to_window(
-        text_area, f"Processing complete, results saved to {output_file}")
 
-    # Keep the window open until the user closes it
-    output_window.mainloop()
+    logging.info(f"Processing complete, results saved to {output_file}")
 
 
 # Configure logging
